@@ -358,6 +358,10 @@ static MVMObject * decont_arg(MVMThreadContext *tc, MVMObject *arg) {
                         result.arg.u64 = MVM_repr_get_uint(tc, obj); \
                     result.flags = MVM_CALLSITE_ARG_INT; \
                     break; \
+                case MVM_CALLSITE_ARG_UINT: \
+                    result.arg.u64 = MVM_repr_get_uint(tc, obj); \
+                    result.flags = MVM_CALLSITE_ARG_UINT; \
+                    break; \
                 case MVM_CALLSITE_ARG_NUM: \
                     result.arg.n64 = MVM_repr_get_num(tc, obj); \
                     result.flags = MVM_CALLSITE_ARG_NUM; \
@@ -373,6 +377,7 @@ static MVMObject * decont_arg(MVMThreadContext *tc, MVMObject *arg) {
         if (!(result.flags & type_flag)) { \
             switch (type_flag) { \
                 case MVM_CALLSITE_ARG_INT: \
+                case MVM_CALLSITE_ARG_UINT: \
                     switch (result.flags & MVM_CALLSITE_ARG_TYPE_MASK) { \
                         case MVM_CALLSITE_ARG_NUM: \
                             MVM_exception_throw_adhoc(tc, "Expected native int argument, but got num"); \
@@ -385,6 +390,7 @@ static MVMObject * decont_arg(MVMThreadContext *tc, MVMObject *arg) {
                 case MVM_CALLSITE_ARG_NUM: \
                     switch (result.flags & MVM_CALLSITE_ARG_TYPE_MASK) { \
                         case MVM_CALLSITE_ARG_INT: \
+                        case MVM_CALLSITE_ARG_UINT: \
                             MVM_exception_throw_adhoc(tc, "Expected native num argument, but got int"); \
                         case MVM_CALLSITE_ARG_STR: \
                             MVM_exception_throw_adhoc(tc, "Expected native num argument, but got str"); \
@@ -395,6 +401,7 @@ static MVMObject * decont_arg(MVMThreadContext *tc, MVMObject *arg) {
                 case MVM_CALLSITE_ARG_STR: \
                     switch (result.flags & MVM_CALLSITE_ARG_TYPE_MASK) { \
                         case MVM_CALLSITE_ARG_INT: \
+                        case MVM_CALLSITE_ARG_UINT: \
                             MVM_exception_throw_adhoc(tc, "Expected native str argument, but got int"); \
                         case MVM_CALLSITE_ARG_NUM: \
                             MVM_exception_throw_adhoc(tc, "Expected native str argument, but got num"); \
@@ -457,6 +464,9 @@ static MVMObject * decont_arg(MVMThreadContext *tc, MVMObject *arg) {
                 break; \
             case MVM_CALLSITE_ARG_INT: \
                 autobox_int(tc, tc->cur_frame, result.arg.i64, result.arg.o); \
+                break; \
+            case MVM_CALLSITE_ARG_UINT: \
+                autobox_int(tc, tc->cur_frame, result.arg.u64, result.arg.o); /* FIXME need autobox_uint */ \
                 break; \
             case MVM_CALLSITE_ARG_NUM: \
                 autobox(tc, tc->cur_frame, result.arg.n64, num_box_type, 0, set_num, result.arg.o); \
@@ -521,13 +531,13 @@ MVMArgInfo MVM_args_get_optional_pos_str(MVMThreadContext *tc, MVMArgProcContext
 MVMuint64 MVM_args_get_required_pos_uint(MVMThreadContext *tc, MVMArgProcContext *ctx, MVMuint32 pos) {
     MVMArgInfo result;
     args_get_pos(tc, ctx, pos, MVM_ARG_REQUIRED, result);
-    autounbox(tc, MVM_CALLSITE_ARG_INT, 0, "unsigned integer", result);
+    autounbox(tc, MVM_CALLSITE_ARG_UINT, 0, "unsigned integer", result);
     return result.arg.u64;
 }
 MVMArgInfo MVM_args_get_optional_pos_uint(MVMThreadContext *tc, MVMArgProcContext *ctx, MVMuint32 pos) {
     MVMArgInfo result;
     args_get_pos(tc, ctx, pos, MVM_ARG_OPTIONAL, result);
-    autounbox(tc, MVM_CALLSITE_ARG_INT, 0, "unsigned integer", result);
+    autounbox(tc, MVM_CALLSITE_ARG_UINT, 0, "unsigned integer", result);
     return result;
 }
 
@@ -586,7 +596,7 @@ MVMArgInfo MVM_args_get_named_str(MVMThreadContext *tc, MVMArgProcContext *ctx, 
 MVMArgInfo MVM_args_get_named_uint(MVMThreadContext *tc, MVMArgProcContext *ctx, MVMString *name, MVMuint8 required) {
     MVMArgInfo result;
     args_get_named(tc, ctx, name, required);
-    autounbox(tc, MVM_CALLSITE_ARG_INT, 0, "unsigned integer", result);
+    autounbox(tc, MVM_CALLSITE_ARG_UINT, 0, "unsigned integer", result);
     return result;
 }
 void MVM_args_assert_nameds_used(MVMThreadContext *tc, MVMArgProcContext *ctx) {
@@ -969,6 +979,10 @@ MVMObject * MVM_args_slurpy_positional(MVMThreadContext *tc, MVMArgProcContext *
                 box_slurpy_pos_int(tc, type, result, box, arg_info.arg.i64, reg, int_box_type, "int", set_int);
                 break;
             }
+            case MVM_CALLSITE_ARG_UINT:{
+                box_slurpy_pos_int(tc, type, result, box, arg_info.arg.u64, reg, int_box_type, "int", set_int); //FIXME need box_slurpy_pos_uint
+                break;
+            }
             case MVM_CALLSITE_ARG_NUM: {
                 box_slurpy_pos(tc, type, result, box, arg_info.arg.n64, reg, num_box_type, "num", set_num);
                 break;
@@ -1073,6 +1087,14 @@ MVMObject * MVM_args_slurpy_named(MVMThreadContext *tc, MVMArgProcContext *ctx) 
             case MVM_CALLSITE_ARG_INT: {
                 MVM_gc_root_temp_push(tc, (MVMCollectable **)&key);
                 box_slurpy_named_int(tc, type, result, box, arg_info.arg.i64, reg, key);
+                MVM_gc_root_temp_pop(tc);
+                if (reset_ctx)
+                    ctx = &(tc->cur_frame->params);
+                break;
+            }
+            case MVM_CALLSITE_ARG_UINT: {
+                MVM_gc_root_temp_push(tc, (MVMCollectable **)&key);
+                box_slurpy_named_int(tc, type, result, box, arg_info.arg.u64, reg, key); // FIXME need box_slurpy_named_uint
                 MVM_gc_root_temp_pop(tc);
                 if (reset_ctx)
                     ctx = &(tc->cur_frame->params);
