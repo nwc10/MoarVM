@@ -293,19 +293,17 @@ char * MVM_nativecall_unmarshal_string(MVMThreadContext *tc, MVMObject *value, M
                 str = MVM_string_ascii_encode_malloc(tc, value_str);
                 break;
             case MVM_NATIVECALL_ARG_UTF16STR:
-                str = MVM_string_utf16_encode(tc, value_str, 0);
-#ifdef MVM_USE_MIMALLOC
-                {
-                    // strlen is wrong for UTF-16. Clearly we don't test
-                    // this. But how do we find the length?
-                    size_t str_len = strlen(str) + 1;
-                    char *libc_str = malloc(str_len);
-                    memcpy(libc_str, str, str_len);
-                    MVM_free(str);
-                    str = libc_str;
-                }
-#endif
+            {
+                MVMuint64 output_size;
+                /* This adds a (two byte) U-0000 at the end, but doesn't include
+                 * that code point in the returned output_size. */
+                char *temp = MVM_string_utf16_encode_substr(tc, value_str, &output_size, 0, -1, NULL, 0);
+                output_size += 2;
+                str = malloc(output_size);
+                memcpy(str, temp, output_size);
+                MVM_free(temp);
                 break;
+            }
             default:
                 str = MVM_string_utf8_encode_C_string_malloc(tc, value_str);
         }
